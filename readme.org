@@ -1,0 +1,285 @@
+** performance
+*** python native version
+    #+begin_src python
+      import sys, random
+      import numpy
+      from time import *
+      N = 1024
+
+      A = numpy.array ([[random.random()
+                         for row in range(N)]
+                        for col in range(N)])
+      B = numpy.array( [[random.random()
+                         for row in range(N)]
+                        for col in range(N)])
+
+      start = time()
+
+      numpy.dot(A, B)
+
+      end = time()
+
+      print ("time:", end - start)
+
+   #+end_src
+
+   #+RESULTS:
+   : time: 158.11748909950256 secs
+*** python numpy version
+    #+begin_src python :results output
+      import sys, random
+      import numpy
+      from time import *
+      N = 1024
+
+      A = numpy.array ([[random.random()
+                         for row in range(N)]
+                        for col in range(N)])
+      B = numpy.array( [[random.random()
+                         for row in range(N)]
+                        for col in range(N)])
+
+      start = time()
+
+     for i in range(N):
+         for j in range(N):
+             for k in range(N):
+                 C[i][j] += A[i][k] * B[k][j]
+
+      end = time()
+
+      print ("time:", end - start)
+
+
+    #+end_src
+
+    #+RESULTS:
+    : time: 2.2141659259796143
+
+*** java
+    #+begin_src java :tangle mm_java.java :eval no
+      import java.util.Random;
+
+      public class mm_java {
+          static int n = 1024;
+          static double[][] A = new double[n][n];
+          static double[][] B = new double[n][n];
+          static double[][] C = new double[n][n];
+
+          public static void main(String[] args) {
+              Random r = new Random();
+
+              for (int i=0; i<n; i++){
+                  for(int j=0; j<n; j++){
+                      A[i][j] = r.nextDouble();
+                      B[i][j] = r.nextDouble();
+                      C[i][j] = 0;
+                  }
+              }
+
+              long start = System.nanoTime();
+
+              for (int i=0; i<n; i++){
+                  for(int j=0; j<n; j++){
+                      for(int k=0; k<n; k++){
+                          C[i][j] += A[i][k] * B[k][j];
+                      }
+                  }
+              }
+
+              long stop = System.nanoTime();
+
+              double diff = (stop - start) * 1e-9;
+              System.out.println(diff);
+          }
+      }
+
+    #+end_src
+    #+begin_src bash
+      javac mm_java.java && java mm_java
+    #+end_src
+
+    #+RESULTS:
+    : 3.87478075
+*** C
+    #+begin_src c :tangle mm_c.c
+      #include <stdio.h>
+      #include <stdlib.h>
+      #include <sys/time.h>
+
+      #define n 1024
+
+      double A[n][n];
+      double B[n][n];
+      double C[n][n];
+
+      float diff (struct timeval *start, struct timeval *end) {
+        return (end->tv_sec - start->tv_sec) +
+          1e-6 * (end->tv_usec - start->tv_usec);
+      }
+
+      int main(int args, const char *argv[]){
+        for (int i=0; i<n; ++i){
+          for(int j=0; j<n; ++j){
+            A[i][j] = (double)rand() / (double)RAND_MAX;
+            B[i][j] = (double)rand() / (double)RAND_MAX;
+            C[i][j] = 0;
+          }
+        }
+        struct timeval start, end;
+        gettimeofday(&start, NULL);
+
+        for(int i=0; i<n; ++i) {
+          for(int j=0; j<n; ++j) {
+            for(int k=0; k<n; ++k) {
+              C[i][j] += A[i][k] * B[k][j];
+            }
+          }
+        }
+
+        gettimeofday(&end, NULL);
+        printf("%0.6f\n", diff(&start, &end));
+        return 0;
+      }
+
+    #+end_src
+    #+begin_src bash
+      gcc  mm_c.c && ./a.out
+    #+end_src
+
+    #+RESULTS:
+    : 4.207333
+
+    #+begin_src bash
+      gcc -O3  mm_c.c && ./a.out
+    #+end_src
+
+    #+RESULTS:
+    : 1.135864
+*** clojure vaive lazy version
+    #+begin_src clojure
+      (def N 1024)
+
+      (def double-seq (repeatedly rand))
+      (defn matrix [s]
+        (vec (take s (repeatedly #(vec (take s double-seq))))))
+
+      (def A (matrix N))
+      (def B (matrix N))
+
+      (time (for [i (range N)]
+              (for [j (range N)]
+                (->> (range N)
+                     (mapv (fn [k] (* (get-in A [i k]) (get-in B [k j]))))
+                     (reduce +)))))
+    #+end_src
+*** clojure naive version
+    #+begin_src clojure
+      (def N 1024)
+
+      (def double-seq (repeatedly rand))
+      (defn matrix [s]
+        (vec (take s (repeatedly #(vec (take s double-seq))))))
+
+      (def A (matrix N))
+      (def B (matrix N))
+
+      (time (doall (for [i (range N)]
+                     (doall (for [j (range N)]
+                              (->> (range N)
+                                   (mapv (fn [k] (* (get-in A [i k]) (get-in B [k j]))))
+                                   (reduce +)))))))
+    #+end_src
+
+    129 secs
+*** clojure naive version1
+    #+begin_src clojure :results output
+      (prn "good")
+    #+end_src
+
+    #+RESULTS:
+    : "good"
+
+   #+begin_src clojure :results output
+     (require '[clj-java-decompiler.core :refer [decompile]])
+
+     (set! *warn-on-reflection* true)
+     (set! *unchecked-math* true)
+
+     (set! *unchecked-math* :warn-on-boxed)
+
+     (defmacro aget2D  [a i j]
+       `(aget ^"[D" (aget ~a ~i) ~j))
+
+     (defmacro aset2D [a i j  v]
+       `(aset ^"[D" (aget ^"[[D" ~a ~i) ~j  ~v))
+     
+     (def N 1024)
+
+     (defn make-matrix-a [n]
+       (let [^"[[D" a (make-array Double/TYPE n n)]
+         (dotimes [i n]
+           (dotimes [j n]
+             (aset2D a i j ^double(rand))))
+         a))
+
+     (def A (make-matrix-a N))
+     (def B (make-matrix-a N))
+
+     (defn mm [^"[[D" A ^"[[D" B]
+       (let [n (alength A)
+             C ^"[[D" (make-matrix-a N)]
+         (dotimes [i n]
+           (dotimes [j n]
+             (loop [k 0,  sum 0.0]
+               (if (< k n)
+                 (recur (inc k) (+ sum  (* (aget2D A i k)
+                                           (aget2D B k j))))
+
+                 (aset2D C i j sum)))))))
+
+     (time (mm A B))
+
+
+     #_(decompile (defn mm [^"[[D" A ^"[[D" B]
+                    (let [n (alength A)]
+                      (dotimes [i n]
+                        (dotimes [j n]
+                          (loop [k 0, sum 0.0]
+                            (if (< k n)
+                              (recur (inc k) (+ sum ^double (* (aget2D A i k)
+                                                               (aget2D B k j))))
+
+                              (aset2D C i j sum))))))))
+
+   #+end_src
+
+   ;; Elapsed time: 1.742 secs
+
+*** clojure vectorize version
+    #+begin_src clojure
+      (require '[tech.v3.datatype.functional :as tfn])
+      (require '[tech.v3.datatype :as dtype])
+
+      (def N 1024)
+      (def A (make-array Double/TYPE N N))
+      (def B (make-array Double/TYPE N N))
+      (def C (make-array Double/TYPE N N))
+
+      (dotimes [i N]
+        (dotimes [j N]
+          (aset2D A i j  (rand))
+          (aset2D B i j  (rand))))
+
+      (def A' (dtype/->array-buffer A))
+      (def B' (dtype/->array-buffer B ))
+
+      (def B'' (tensor/transpose B' [1 0])) ;; 行列互换
+
+
+      (time (for [i (range N)]
+              (for [j (range N)]
+                (tfn/dot-product (nth A' i)
+                                 (nth B' j)))))
+    #+end_src
+    ;; 0.1 secs
